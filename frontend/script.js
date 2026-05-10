@@ -62,6 +62,7 @@ createApp({
             cardForm: { title: '', source_slug: '', published_at: '', url: '', text: '' },
             adminItems: [],
             adminItemsLoading: false,
+            adminSearch: '',
             parsingUrl: false,
             creating: false,
             editingItem: null,
@@ -93,7 +94,14 @@ createApp({
             return this.floatingLogos.map(l => ({ slug: l.name.toLowerCase().replace(/\s+/g, '_'), name: l.name }));
         },
         sortedAdminItems() {
-            const items = [...this.adminItems];
+            let items = [...this.adminItems];
+            const q = this.adminSearch.trim().toLowerCase();
+            if (q) {
+                items = items.filter(item =>
+                    (item.title || '').toLowerCase().includes(q) ||
+                    (item.source_name || '').toLowerCase().includes(q)
+                );
+            }
             const { field, order } = this.adminSort;
             items.sort((a, b) => {
                 let va = a[field] || '';
@@ -116,6 +124,7 @@ createApp({
     },
     watch: {
         activeNav: {
+            immediate: true,
             handler(nav) {
                 localStorage.setItem('lynx_activeNav', nav);
                 if (nav === 'admin') {
@@ -145,6 +154,7 @@ createApp({
             try {
                 await this.fetchMe();
                 if (this.isAdmin) await this.loadDocuments();
+                if (this.activeNav === 'chat') await this.loadSessions(true);
             }
             catch (_) { this.handleLogout(); }
         }
@@ -207,11 +217,6 @@ createApp({
                 month: '2-digit', day: '2-digit',
                 hour: '2-digit', minute: '2-digit',
             });
-        },
-        importanceLabel(level) {
-            if (level === 'high') return '高关注';
-            if (level === 'low') return '轻量';
-            return '常规';
         },
         cardVariant(index) { return `card-var-${index % 5}`; },
 
@@ -373,7 +378,10 @@ createApp({
             this.messages = [];
             this.sessionId = `session_${Date.now()}`;
             this.chatAttachments = [];
-            if (this.isAuthenticated) this.activeNav = 'chat';
+            if (this.isAuthenticated) {
+                this.activeNav = 'chat';
+            }
+            this.$nextTick(() => this.startPickerScroll());
         },
         async deleteSession(sessionId) {
             if (!confirm('确定要删除此对话吗？')) return;
@@ -728,6 +736,7 @@ createApp({
 
         resetCardForm() {
             this.cardForm = { title: '', source_slug: '', published_at: '', url: '', text: '' };
+            this.editingItem = null;
         },
 
         _utcToLocalForm(utcIso) {
@@ -762,8 +771,10 @@ createApp({
             if (!title || !source_slug || !text) return;
             this.creating = true;
             try {
-                const r = await this.authFetch('/admin/items', {
-                    method: 'POST',
+                const isEdit = !!this.editingItem;
+                const url = isEdit ? `/admin/items/${this.editingItem.id}` : '/admin/items';
+                const r = await this.authFetch(url, {
+                    method: isEdit ? 'PUT' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         title: title.trim(),
@@ -775,12 +786,12 @@ createApp({
                 });
                 if (!r.ok) {
                     const err = await r.json().catch(() => ({}));
-                    throw new Error(err.detail || '创建失败');
+                    throw new Error(err.detail || (isEdit ? '保存失败' : '创建失败'));
                 }
                 this.resetCardForm();
                 await this.loadAdminItems();
             } catch (e) {
-                alert(`创建失败: ${e.message}`);
+                alert(`操作失败: ${e.message}`);
             } finally {
                 this.creating = false;
             }
@@ -830,44 +841,21 @@ createApp({
         },
 
         startEdit(item) {
-            this.editingItem = {
-                id: item.id,
+            this.cardForm = {
                 title: item.title,
                 source_slug: item.source_slug,
                 url: item.url || '',
                 published_at: this._utcToLocalForm(item.published_at),
                 text: item.body || '',
             };
+            this.editingItem = item;
+            this.$nextTick(() => {
+                this.$refs.cardMgmt?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
         },
 
         cancelEdit() {
-            this.editingItem = null;
-        },
-
-        async saveEdit() {
-            const item = this.editingItem;
-            if (!item || !item.title || !item.source_slug) return;
-            try {
-                const r = await this.authFetch(`/admin/items/${item.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        title: item.title.trim(),
-                        source_slug: item.source_slug,
-                        text: item.text.trim(),
-                        url: item.url.trim() || null,
-                        published_at: item.published_at ? item.published_at + 'T12:00:00' : null,
-                    }),
-                });
-                if (!r.ok) {
-                    const err = await r.json().catch(() => ({}));
-                    throw new Error(err.detail || '保存失败');
-                }
-                this.editingItem = null;
-                await this.loadAdminItems();
-            } catch (e) {
-                alert(`保存失败: ${e.message}`);
-            }
+            this.resetCardForm();
         },
 
         setSort(field) {
@@ -882,6 +870,13 @@ createApp({
 
         startPickerScroll() {
             this.stopPickerScroll();
+            // Wake up the scroll container — ensures scrollWidth is computed
+            const rail = document.querySelector('.news-picker-rail');
+            if (rail) {
+                void rail.offsetHeight;
+                rail.scrollLeft = 1;
+                rail.scrollLeft = 0;
+            }
             this._pickerTimer = setInterval(() => {
                 const el = document.querySelector('.news-picker-rail');
                 if (!el || el.matches(':hover')) return;

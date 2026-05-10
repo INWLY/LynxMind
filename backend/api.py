@@ -17,36 +17,7 @@ from news_service import _ingest_progress, create_manual_card, fetch_article, ge
 from parent_chunk_store import ParentChunkStore
 from qdrant_store import QdrantManager
 from qdrant_writer import QdrantWriter
-from schemas import (
-    AuthResponse,
-    ChatAttachmentParseResponse,
-    ChatRequest,
-    ChatResponse,
-    CurrentUserResponse,
-    DocumentDeleteResponse,
-    DocumentInfo,
-    DocumentListResponse,
-    DocumentUploadResponse,
-    IngestionJobListResponse,
-    LoginRequest,
-    MessageInfo,
-    NewsAskResponse,
-    NewsDetailResponse,
-    NewsIngestRequest,
-    NewsIngestResponse,
-    NewsListResponse,
-    RegisterRequest,
-    AdminCardListResponse,
-    AdminCardResponse,
-    AdminCreateCardRequest,
-    AdminUpdateCardRequest,
-    SessionDeleteResponse,
-    SessionInfo,
-    SessionListResponse,
-    SessionMessagesResponse,
-    SessionTitleUpdateRequest,
-    SessionTitleUpdateResponse,
-)
+from schemas import *
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR.parent / "data"

@@ -51,7 +51,7 @@
                         <div class="user-avatar">{{ currentUser.username?.charAt(0)?.toUpperCase() }}</div>
                         <div class="user-meta">
                             <strong>{{ currentUser.username }}</strong>
-                            <small>用户</small>
+                            <small>{{ isAdmin ? '管理员' : '用户' }}</small>
                         </div>
                         <button class="logout-btn" @click="handleLogout">退出</button>
                     </div>
@@ -365,7 +365,7 @@
                 </div>
 
                 <!-- Card Management -->
-                <div class="admin-card">
+                <div class="admin-card" ref="cardMgmt">
                     <div class="admin-card-header">
                         <div>
                             <div class="section-title">卡片管理</div>
@@ -384,7 +384,7 @@
                                 <input v-model="cardForm.published_at" type="date" class="form-input">
                             </div>
                             <div class="url-parse-row">
-                                <input v-model="cardForm.url" placeholder="原文地址（输入后点解析自动填写）" class="form-input">
+                                <input v-model="cardForm.url" placeholder="原文地址（支持自动解析网页内容）" class="form-input">
                                 <button class="ghost-btn small" :disabled="!cardForm.url || parsingUrl"
                                     @click="parseUrl">
                                     {{ parsingUrl ? '解析中...' : '解析' }}
@@ -396,36 +396,14 @@
                                 <button class="primary-btn"
                                     :disabled="!cardForm.title || !cardForm.source_slug || !cardForm.text || creating"
                                     @click="createCard">
-                                    <i class="fas" :class="creating ? 'fa-spinner fa-spin' : 'fa-plus'"></i> {{ creating
-                                    ? '生成中...' : '创建卡片' }}
+                                    <i class="fas" :class="creating ? 'fa-spinner fa-spin' : (editingItem ? 'fa-save' : 'fa-plus')"></i>
+                                    {{ creating ? '处理中...' : (editingItem ? '保存修改' : '创建卡片') }}
                                 </button>
+                                <button v-if="editingItem" class="tiny-btn" @click="cancelEdit">取消编辑</button>
                             </div>
                         </div>
 
-                        <!-- Edit form -->
-                        <div v-if="editingItem" class="edit-section">
-                            <div class="edit-header">
-                                <div class="section-title">编辑卡片</div>
-                                <button class="tiny-btn" @click="cancelEdit">取消</button>
-                            </div>
-                            <div class="form-row">
-                                <input v-model="editingItem.title" placeholder="标题" class="form-input">
-                                <select v-model="editingItem.source_slug" class="form-input">
-                                    <option value="">选择厂商</option>
-                                    <option v-for="s in adminSources" :key="s.slug" :value="s.slug">{{ s.name }}
-                                    </option>
-                                </select>
-                                <input v-model="editingItem.published_at" type="date" class="form-input">
-                            </div>
-                            <input v-model="editingItem.url" placeholder="原文地址（可选）" class="form-input">
-                            <textarea v-model="editingItem.text" class="form-textarea" rows="4"></textarea>
-                            <div class="form-actions edit-form-actions">
-                                <button class="primary-btn" :disabled="!editingItem.title || !editingItem.source_slug"
-                                    @click="saveEdit">
-                                    <i class="fas fa-save"></i> 保存修改
-                                </button>
-                            </div>
-                        </div>
+                        <hr class="admin-divider">
 
                         <div class="sort-bar">
                             <span class="sort-label">排序：</span>
@@ -439,6 +417,7 @@
                                 厂商 {{ adminSort.field === 'source_name' ? (adminSort.order === 'desc' ? '↓' : '↑') : ''
                                 }}
                             </button>
+                            <input v-model="adminSearch" placeholder="搜索标题或厂商..." class="form-input search-input">
                         </div>
 
                         <div v-if="adminItemsLoading" class="loading-hint">
@@ -460,7 +439,13 @@
                                 <tbody>
                                     <tr v-for="item in sortedAdminItems" :key="item.id">
                                         <td class="doc-name">{{ item.title }}</td>
-                                        <td><span class="tag">{{ item.source_name }}</span></td>
+                                        <td>
+                                            <span class="admin-source-cell">
+                                                <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
+                                                    :alt="item.source_name" class="source-logo">
+                                                <span>{{ item.source_name }}</span>
+                                            </span>
+                                        </td>
                                         <td>{{ formatDateShort(item.published_at) || '时间未知' }}</td>
                                         <td>
                                             <button class="tiny-btn" @click="startEdit(item)">
@@ -498,7 +483,6 @@
             <div class="detail-body">
                 <div class="detail-meta">
                     <span>{{ formatDateLabel(selectedNewsDetail.item.published_at) || '发布时间未知' }}</span>
-                    <span>{{ importanceLabel(selectedNewsDetail.item.importance) }}</span>
                 </div>
                 <p class="detail-summary">{{ selectedNewsDetail.item.summary }}</p>
                 <div class="thought-box large">
@@ -513,7 +497,7 @@
                 </article>
 
                 <div v-if="selectedNewsDetail.related_items?.length" class="related-section">
-                    <div class="section-title">相关卡片</div>
+                    <div class="section-title">相关资讯</div>
                     <button v-for="item in selectedNewsDetail.related_items" :key="item.id" class="related-item"
                         @click="openNewsDetail(item.id)">
                         <strong>{{ item.title }}</strong>

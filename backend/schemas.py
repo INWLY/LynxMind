@@ -1,6 +1,18 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+__all__ = [
+    "RegisterRequest", "LoginRequest", "AuthResponse", "CurrentUserResponse",
+    "ChatRequest", "ChatResponse", "RetrievedChunk", "RagTrace",
+    "ChatAttachmentParseResponse", "MessageInfo",
+    "SessionMessagesResponse", "SessionInfo", "SessionListResponse",
+    "SessionDeleteResponse", "SessionTitleUpdateRequest", "SessionTitleUpdateResponse",
+    "DocumentInfo", "DocumentListResponse", "DocumentUploadResponse", "DocumentDeleteResponse",
+    "SourceInfo", "NewsCardSummary", "NewsListResponse", "NewsDetailResponse", "NewsAskResponse",
+    "IngestionJobInfo", "IngestionJobListResponse", "NewsIngestRequest", "NewsIngestResponse",
+    "AdminCreateCardRequest", "AdminUpdateCardRequest", "AdminCardResponse", "AdminCardListResponse",
+]
+
 
 class RegisterRequest(BaseModel):
     username: str

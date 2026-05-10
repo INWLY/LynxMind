@@ -13,7 +13,7 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="思源 API")
+    app = FastAPI(title="LynxMind API")
 
     @app.on_event("startup")
     async def _startup_init_db():

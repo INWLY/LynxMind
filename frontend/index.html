@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LynxMind</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-light.min.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+
+<body>
+    <div id="app" class="shell">
+        <main class="main">
+            <div class="top-bar">
+                <div class="top-brand" @click="activeNav = 'news'">
+                    <div class="brand-mark">L</div>
+                    <div class="brand-name-wrap">
+                        <div class="brand-kicker">AI Daily RAG</div>
+                        <h1>LynxMind</h1>
+                    </div>
+                </div>
+
+                <div v-if="activeNav === 'chat' && currentNewsContext" class="top-context-pill">
+                    <span class="context-label">锚点资讯</span>
+                    <strong :title="currentNewsContext.title">{{ currentNewsContext.title }}</strong>
+                    <button class="icon-btn" @click="clearNewsContext" title="清除锚点">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="top-bar-end">
+                    <button v-if="isAdmin" class="ghost-btn small" :class="{ active: activeNav === 'admin' }"
+                        @click="activeNav = 'admin'">
+                        <i class="fas fa-cog"></i> 管理
+                    </button>
+<button v-if="isAuthenticated" class="primary-btn small" @click="handleNewChat">
+                        <i class="fas fa-plus"></i> 新对话
+                    </button>
+                    <div v-if="isAuthenticated" class="user-menu">
+                        <div class="user-avatar">{{ currentUser.username?.charAt(0)?.toUpperCase() }}</div>
+                        <div class="user-meta">
+                            <strong>{{ currentUser.username }}</strong>
+                            <small>用户</small>
+                        </div>
+                        <button class="logout-btn" @click="handleLogout">退出</button>
+                    </div>
+                    <div v-else class="user-menu">
+                        <button class="primary-btn" @click="activeNav = 'chat'">登录 / 注册</button>
+                    </div>
+                </div>
+            </div>
+
+            <section v-if="activeNav === 'news'" class="page news-page">
+                <section class="home-stage">
+                    <header class="hero hero-centered">
+                        <div class="eyebrow">LynxMind · Primary Intelligence</div>
+                        <h2>Beyond facts, toward insight.</h2>
+                        <p>在这个信息爆炸的时代，祝你有自己的思考。</p>
+
+                        <div class="double-marquee-container">
+                            <div class="logo-marquee row-left">
+                                <div class="marquee-track">
+                                    <a v-for="logo in marqueeRow1" :key="logo.name" :href="logo.link" target="_blank"
+                                        rel="noopener noreferrer" class="marquee-item">
+                                        <img :src="logo.url" :alt="logo.name">
+                                        <span>{{ logo.name }}</span>
+                                    </a>
+                                    <a v-for="logo in marqueeRow1" :key="'dup1-'+logo.name" :href="logo.link"
+                                        target="_blank" rel="noopener noreferrer" class="marquee-item">
+                                        <img :src="logo.url" :alt="logo.name">
+                                        <span>{{ logo.name }}</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="logo-marquee row-right">
+                                <div class="marquee-track">
+                                    <a v-for="logo in marqueeRow2" :key="logo.name" :href="logo.link" target="_blank"
+                                        rel="noopener noreferrer" class="marquee-item">
+                                        <img :src="logo.url" :alt="logo.name">
+                                        <span>{{ logo.name }}</span>
+                                    </a>
+                                    <a v-for="logo in marqueeRow2" :key="'dup2-'+logo.name" :href="logo.link"
+                                        target="_blank" rel="noopener noreferrer" class="marquee-item">
+                                        <img :src="logo.url" :alt="logo.name">
+                                        <span>{{ logo.name }}</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                    </header>
+                </section>
+
+                <section class="filters">
+                    <label>
+                        <span>来源</span>
+                        <select v-model="filters.source" @change="loadNews()">
+                            <option value="">全部来源</option>
+                            <option v-for="source in newsSources" :key="source.slug" :value="source.slug">
+                                {{ source.name }}
+                            </option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>日期</span>
+                        <select v-model="filters.date" @change="loadNews()">
+                            <option value="">全部日期</option>
+                            <option v-for="date in availableDates" :key="date" :value="date">{{ date }}</option>
+                        </select>
+                    </label>
+                    <div class="filters-end">
+                        <div class="filters-summary">
+                            <strong>{{ newsTotal }}</strong>
+                            <span>条已整理资讯</span>
+                        </div>
+                        <button class="ghost-btn small" @click="loadNews()">
+                            <i class="fas fa-rotate"></i>
+                            刷新
+                        </button>
+                    </div>
+                </section>
+
+                <section v-if="newsLoading" class="empty-state">
+                    <div class="loader"></div>
+                    <p>正在整理今天的 AI 动态...</p>
+                </section>
+
+                <section v-if="!newsLoading && newsItems.length" class="news-grid">
+                    <article v-for="(item, index) in newsItems" :key="item.id" class="news-card"
+                        :class="cardVariant(index)" @click="openNewsDetail(item.id)">
+                        <div class="news-card-top">
+                            <div class="source-badge">
+                                <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
+                                    :alt="item.source_name" class="source-logo">
+                                {{ item.source_name }}
+                            </div>
+                            <span class="news-date">{{ formatDateShort(item.published_at) || '时间未知' }}</span>
+                        </div>
+                        <h4>{{ item.title }}</h4>
+                        <p class="news-summary">{{ item.one_line_summary || item.summary }}</p>
+                        <div class="tag-list compact">
+                            <span v-for="tag in item.tags" :key="tag" class="tag">{{ tag }}</span>
+                        </div>
+                    </article>
+                </section>
+
+                <section v-if="!newsLoading && !newsItems.length" class="empty-state">
+                    <i class="fas fa-box-open"></i>
+                    <p>当前还没有抓到可展示的资讯卡片。</p>
+                </section>
+            </section>
+
+            <section v-if="activeNav === 'chat'" class="page chat-page">
+
+                <div v-if="!isAuthenticated" class="auth-panel">
+                    <h3>{{ authMode === 'login' ? '登录 LynxMind' : '注册 LynxMind' }}</h3>
+                    <p>登录后可保存历史追问、上传附件，并围绕新闻卡片持续展开讨论。</p>
+                    <div class="auth-form">
+                        <input v-model="authForm.username" type="text" placeholder="用户名">
+                        <input v-model="authForm.password" type="password" placeholder="密码">
+                        <button class="primary-btn" :disabled="authLoading" @click="handleAuthSubmit">
+                            {{ authLoading ? '处理中...' : (authMode === 'login' ? '登录' : '注册') }}
+                        </button>
+                        <button class="text-btn" @click="toggleAuthMode">
+                            {{ authMode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
+                        </button>
+                    </div>
+                </div>
+
+                <template v-else>
+                    <div class="chat-layout">
+                        <!-- Left: Session Sidebar -->
+                        <aside class="chat-sidebar">
+                            <div class="sidebar-list">
+                                <div v-for="s in sessions" :key="s.session_id" class="sidebar-item"
+                                    :class="{ active: s.session_id === sessionId }" @click="loadSession(s.session_id)">
+                                    <div class="sidebar-item-title">{{ s.title }}</div>
+                                    <div class="sidebar-item-meta">
+                                        <span>{{ formatTimeShort(s.updated_at) }}</span>
+                                        <button class="sidebar-del-btn" @click.stop="deleteSession(s.session_id)" title="删除对话">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="!sessions.length" class="sidebar-empty">暂无对话</div>
+                            </div>
+                        </aside>
+
+                        <!-- Right: Chat Area -->
+                        <div class="chat-main">
+                            <div class="chat-shell">
+                                <div class="chat-stream" ref="chatContainer">
+                                    <div v-if="messages.length === 0" class="empty-chat-picker">
+                                        <div class="empty-chat-header">
+                                            <h3>开启新对话</h3>
+                                            <p>直接提问，或从下方选择一条最新资讯作为讨论锚点：</p>
+                                        </div>
+                                        <div class="news-picker-rail"
+                                            @mouseenter="stopPickerScroll"
+                                            @mouseleave="startPickerScroll">
+                                            <div class="news-picker-track">
+                                                <button v-for="item in newsItems" :key="item.id"
+                                                    class="picker-card"
+                                                    @click="currentNewsContext = item; handleNewChat()">
+                                                    <span class="picker-top-row">
+                                                        <span class="picker-source">
+                                                            <img v-if="sourceLogo(item.source_name)"
+                                                                :src="sourceLogo(item.source_name).url"
+                                                                :alt="item.source_name" class="picker-logo">
+                                                            {{ item.source_name }}
+                                                        </span>
+                                                        <span class="picker-date">{{ formatDateShort(item.published_at) }}</span>
+                                                    </span>
+                                                    <strong class="picker-title">{{ item.title }}</strong>
+                                                </button>
+                                                <button v-for="item in newsItems" :key="'dup-'+item.id"
+                                                    class="picker-card"
+                                                    @click="currentNewsContext = item; handleNewChat()">
+                                                    <span class="picker-top-row">
+                                                        <span class="picker-source">
+                                                            <img v-if="sourceLogo(item.source_name)"
+                                                                :src="sourceLogo(item.source_name).url"
+                                                                :alt="item.source_name" class="picker-logo">
+                                                            {{ item.source_name }}
+                                                        </span>
+                                                        <span class="picker-date">{{ formatDateShort(item.published_at) }}</span>
+                                                    </span>
+                                                    <strong class="picker-title">{{ item.title }}</strong>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div v-for="(msg, index) in messages" :key="index" class="message"
+                                        :class="msg.isUser ? 'user' : 'assistant'">
+                                        <div class="message-bubble">
+                                            <div v-if="msg.isUser && msg.attachments?.length" class="message-files">
+                                                <span v-for="name in msg.attachments" :key="name" class="file-pill">{{
+                                                    name
+                                                    }}</span>
+                                            </div>
+                                            <div v-if="msg.isUser" class="user-copy">{{ msg.text }}</div>
+                                            <div v-else-if="msg.isThinking && !msg.text" class="thinking">
+                                                <div class="thinking-row">
+                                                    <span class="loader-dot"></span>
+                                                    <span>{{ msg.ragSteps?.length ? msg.ragSteps[msg.ragSteps.length -
+                                                        1].label
+                                                        : '正在整理回答...' }}</span>
+                                                </div>
+                                                <div v-if="msg.ragSteps?.length" class="thinking-steps">
+                                                    <div v-for="(step, stepIndex) in msg.ragSteps" :key="stepIndex"
+                                                        class="thinking-step">
+                                                        <span>{{ step.icon || '·' }}</span>
+                                                        <span>{{ step.label }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-else class="markdown-body" v-html="parseMarkdown(msg.text)"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="chat-input-panel">
+                                    <div class="chat-input-container">
+                                        <div v-if="chatAttachments.length" class="attachment-list">
+                                            <div v-for="(att, idx) in chatAttachments" :key="`${att.name}-${idx}`"
+                                                class="attachment-item">
+                                                <i class="fas fa-file-alt attachment-icon"></i>
+                                                <span>{{ att.name }}</span>
+                                                <button class="small-icon" @click="removeChatAttachment(idx)"><i
+                                                        class="fas fa-times"></i></button>
+                                            </div>
+                                        </div>
+
+                                        <div class="composer-pill">
+                                            <button class="pill-action-btn" @click="$refs.chatFileInput.click()"
+                                                :disabled="isParsingAttachment" title="添加附件">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                            <input ref="chatFileInput" type="file" multiple
+                                                accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.csv,.json"
+                                                style="display:none" @change="handleChatFileSelect">
+
+                                            <textarea ref="textarea" v-model="userInput" placeholder="输入你的追问..."
+                                                @input="autoResize" @keydown.enter.exact.prevent="sendMessage"
+                                                rows="1"></textarea>
+
+                                            <button class="pill-action-btn send-btn"
+                                                :class="{ 'active': userInput.trim() && !isLoading }"
+                                                :disabled="isLoading || !userInput.trim()" @click="sendMessage"
+                                                title="发送">
+                                                <i class="fas"
+                                                    :class="isLoading ? 'fa-spinner fa-spin' : 'fa-arrow-up'"></i>
+                                            </button>
+                                        </div>
+
+                                       
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </section>
+
+            <section v-if="activeNav === 'admin'" class="page admin-page">
+                <header class="page-header">
+                    <div>
+                        <div class="eyebrow">LynxMind · 管理控制台</div>
+                        <h2>管理后台</h2>
+                    </div>
+                </header>
+
+                <!-- Information Scraping -->
+                <div class="admin-card">
+                    <div class="admin-card-header">
+                        <div>
+                            <div class="section-title">信息抓取</div>
+                            <p>从各 AI 公司官网抓取最新动态，生成资讯卡片</p>
+                        </div>
+                    </div>
+                    <div class="admin-card-body">
+                        <div class="scraping-controls">
+                            <div class="scraping-actions">
+                                <button class="primary-btn" :disabled="scrapingActive" @click="startScraping">
+                                    <i class="fas fa-cloud-download-alt"></i>
+                                    {{ scrapingActive ? '抓取中...' : '开始抓取' }}
+                                </button>
+                                <span v-if="scrapingActive" class="scraping-hint">抓取过程可能需要几分钟，请勿关闭页面</span>
+                            </div>
+                            <button class="tiny-btn danger" @click="deleteAllNews">
+                                <i class="fas fa-trash"></i> 删除所有资讯
+                            </button>
+                        </div>
+
+                        <div v-if="scrapingJob" class="scraping-progress-section">
+                            <div class="progress-bar">
+                                <div class="progress-fill" :style="{ width: scrapingProgressPercent + '%' }"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span class="progress-current">{{ scrapingCurrent }}</span>
+                                <span class="progress-num">{{ scrapingProgress }} / {{ scrapingTotal }}</span>
+                            </div>
+                            <div v-if="scrapingJob.status === 'success'" class="job-result success">
+                                <i class="fas fa-check-circle"></i> 抓取完成：共导入 {{ scrapingJob.imported_count }} 条，跳过 {{
+                                scrapingJob.skipped_count }} 条
+                            </div>
+                            <div v-else-if="scrapingJob.status === 'failed'" class="job-result failed">
+                                <i class="fas fa-exclamation-circle"></i> 抓取失败：{{ scrapingJob.error_message || '未知错误' }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card Management -->
+                <div class="admin-card">
+                    <div class="admin-card-header">
+                        <div>
+                            <div class="section-title">卡片管理</div>
+                            <p>手动创建资讯卡片，或管理现有卡片</p>
+                        </div>
+                    </div>
+                    <div class="admin-card-body">
+                        <div class="create-form">
+                            <div class="form-row">
+                                <input v-model="cardForm.title" placeholder="标题" class="form-input">
+                                <select v-model="cardForm.source_slug" class="form-input">
+                                    <option value="">选择厂商</option>
+                                    <option v-for="s in adminSources" :key="s.slug" :value="s.slug">{{ s.name }}
+                                    </option>
+                                </select>
+                                <input v-model="cardForm.published_at" type="date" class="form-input">
+                            </div>
+                            <div class="url-parse-row">
+                                <input v-model="cardForm.url" placeholder="原文地址（输入后点解析自动填写）" class="form-input">
+                                <button class="ghost-btn small" :disabled="!cardForm.url || parsingUrl"
+                                    @click="parseUrl">
+                                    {{ parsingUrl ? '解析中...' : '解析' }}
+                                </button>
+                            </div>
+                            <textarea v-model="cardForm.text" placeholder="资讯内容..." class="form-textarea"
+                                rows="4"></textarea>
+                            <div class="form-actions">
+                                <button class="primary-btn"
+                                    :disabled="!cardForm.title || !cardForm.source_slug || !cardForm.text || creating"
+                                    @click="createCard">
+                                    <i class="fas" :class="creating ? 'fa-spinner fa-spin' : 'fa-plus'"></i> {{ creating
+                                    ? '生成中...' : '创建卡片' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Edit form -->
+                        <div v-if="editingItem" class="edit-section">
+                            <div class="edit-header">
+                                <div class="section-title">编辑卡片</div>
+                                <button class="tiny-btn" @click="cancelEdit">取消</button>
+                            </div>
+                            <div class="form-row">
+                                <input v-model="editingItem.title" placeholder="标题" class="form-input">
+                                <select v-model="editingItem.source_slug" class="form-input">
+                                    <option value="">选择厂商</option>
+                                    <option v-for="s in adminSources" :key="s.slug" :value="s.slug">{{ s.name }}
+                                    </option>
+                                </select>
+                                <input v-model="editingItem.published_at" type="date" class="form-input">
+                            </div>
+                            <input v-model="editingItem.url" placeholder="原文地址（可选）" class="form-input">
+                            <textarea v-model="editingItem.text" class="form-textarea" rows="4"></textarea>
+                            <div class="form-actions edit-form-actions">
+                                <button class="primary-btn" :disabled="!editingItem.title || !editingItem.source_slug"
+                                    @click="saveEdit">
+                                    <i class="fas fa-save"></i> 保存修改
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="sort-bar">
+                            <span class="sort-label">排序：</span>
+                            <button class="sort-btn" :class="{ active: adminSort.field === 'published_at' }"
+                                @click="setSort('published_at')">
+                                发布时间 {{ adminSort.field === 'published_at' ? (adminSort.order === 'desc' ? '↓' : '↑') :
+                                '' }}
+                            </button>
+                            <button class="sort-btn" :class="{ active: adminSort.field === 'source_name' }"
+                                @click="setSort('source_name')">
+                                厂商 {{ adminSort.field === 'source_name' ? (adminSort.order === 'desc' ? '↓' : '↑') : ''
+                                }}
+                            </button>
+                        </div>
+
+                        <div v-if="adminItemsLoading" class="loading-hint">
+                            <div class="loader-dot"></div> 加载中...
+                        </div>
+                        <div v-else-if="adminItems.length === 0" class="empty-docs">
+                            <p>暂无卡片。</p>
+                        </div>
+                        <div v-else class="doc-table-wrap">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>标题</th>
+                                        <th>厂商</th>
+                                        <th>发布时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in sortedAdminItems" :key="item.id">
+                                        <td class="doc-name">{{ item.title }}</td>
+                                        <td><span class="tag">{{ item.source_name }}</span></td>
+                                        <td>{{ formatDateShort(item.published_at) || '时间未知' }}</td>
+                                        <td>
+                                            <button class="tiny-btn" @click="startEdit(item)">
+                                                <i class="fas fa-pen"></i> 编辑
+                                            </button>
+                                            <button class="tiny-btn danger" @click="deleteAdminItem(item.id)">
+                                                <i class="fas fa-trash"></i> 删除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <div v-if="selectedNewsDetail" class="detail-backdrop" @click="selectedNewsDetail = null"></div>
+        <aside v-if="selectedNewsDetail" class="detail-panel">
+            <div class="detail-header">
+                <div>
+                    <div class="eyebrow">
+                        <img v-if="sourceLogo(selectedNewsDetail.item.source_name)"
+                            :src="sourceLogo(selectedNewsDetail.item.source_name).url"
+                            :alt="selectedNewsDetail.item.source_name" class="source-logo">
+                        {{ selectedNewsDetail.item.source_name }}
+                    </div>
+                    <h3>{{ selectedNewsDetail.item.title }}</h3>
+                </div>
+                <button class="icon-text-btn" @click="selectedNewsDetail = null">关闭</button>
+            </div>
+
+            <div class="detail-body">
+                <div class="detail-meta">
+                    <span>{{ formatDateLabel(selectedNewsDetail.item.published_at) || '发布时间未知' }}</span>
+                    <span>{{ importanceLabel(selectedNewsDetail.item.importance) }}</span>
+                </div>
+                <p class="detail-summary">{{ selectedNewsDetail.item.summary }}</p>
+                <div class="thought-box large">
+                    <div class="thought-label">思考提示</div>
+                    <p>{{ selectedNewsDetail.item.thought_prompt }}</p>
+                </div>
+                <div class="tag-list">
+                    <span v-for="tag in selectedNewsDetail.item.tags" :key="tag" class="tag">{{ tag }}</span>
+                </div>
+                <article class="detail-article">
+                    <p v-for="(para, idx) in detailParagraphs" :key="idx">{{ para }}</p>
+                </article>
+
+                <div v-if="selectedNewsDetail.related_items?.length" class="related-section">
+                    <div class="section-title">相关卡片</div>
+                    <button v-for="item in selectedNewsDetail.related_items" :key="item.id" class="related-item"
+                        @click="openNewsDetail(item.id)">
+                        <strong>{{ item.title }}</strong>
+                        <span>{{ item.source_name }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="detail-actions">
+                <button class="primary-btn" @click="openNewsChat(selectedNewsDetail.item)">继续追问</button>
+                <a class="ghost-btn" :href="selectedNewsDetail.item.url" target="_blank" rel="noreferrer">查看原文</a>
+            </div>
+        </aside>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+wheels/
+*.egg
+.pytest_cache/
+
+# Virtual environment
+.venv/
+.venv
+
+# Environment
+.env
+
+# IDE / Editor config
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+volumes/
+
+# Data
+data/
+*.db
+*.sqlite
+
+# Runtime
+*.log
+.uv-cache/
+
+# Downloaded models
+bge-m3/
+
+# Personal notes
+NOTES.md
+
+# Project specific
+*.m3

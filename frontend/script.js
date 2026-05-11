@@ -868,29 +868,63 @@ createApp({
 
         // === Picker auto-scroll ===
 
-        startPickerScroll() {
+startPickerScroll() {
             this.stopPickerScroll();
-            // Wake up the scroll container — ensures scrollWidth is computed
-            const rail = document.querySelector('.news-picker-rail');
-            if (rail) {
-                void rail.offsetHeight;
-                rail.scrollLeft = 1;
-                rail.scrollLeft = 0;
-            }
-            this._pickerTimer = setInterval(() => {
-                const el = document.querySelector('.news-picker-rail');
-                if (!el || el.matches(':hover')) return;
-                el.scrollLeft += 0.4;
-                if (el.scrollLeft >= el.scrollWidth / 2) {
-                    el.scrollLeft = 0;
-                }
-            }, 30);
+            
+            setTimeout(() => {
+                let accumulatedScroll = 0;
+                // 这里的速度可以根据你的喜好微调。0.5 在 60fps 下大概是每秒 30 像素
+                const speed = 0.5; 
+                
+                // 定义一个与浏览器刷新率同步的动画帧函数
+                const step = () => {
+                    const el = document.querySelector('.news-picker-rail');
+                    if (!el) return;
+                    
+                    // 只有在鼠标没有悬浮时才滚动
+                    if (!el.matches(':hover')) {
+                        const track = el.firstElementChild;
+                        const scrollable = track ? track.scrollWidth - el.clientWidth : 0;
+                        
+                        if (scrollable > 0) {
+                            accumulatedScroll += speed;
+                            
+                            // 攒够了 1 个整数像素，才让浏览器滚一下
+                            if (accumulatedScroll >= 1) {
+                                const pixelsToMove = Math.floor(accumulatedScroll);
+                                el.scrollLeft += pixelsToMove;
+                                accumulatedScroll -= pixelsToMove;
+                            }
+
+                            // 触底重置
+                            if (el.scrollLeft >= scrollable) {
+                                el.scrollLeft = 0;
+                            }
+                        }
+                    }
+                    
+                    // 核心魔法：请求浏览器在下一帧继续执行 step 函数
+                    this._pickerFrameId = requestAnimationFrame(step);
+                };
+                
+                // 启动第一帧动画
+                this._pickerFrameId = requestAnimationFrame(step);
+                
+            }, 100);
         },
+
         stopPickerScroll() {
+            // 清理新的动画帧
+            if (this._pickerFrameId) {
+                cancelAnimationFrame(this._pickerFrameId);
+                this._pickerFrameId = null;
+            }
+            // 兼容清理旧的定时器（防止残留）
             if (this._pickerTimer) {
                 clearInterval(this._pickerTimer);
                 this._pickerTimer = null;
             }
         },
+
     },
 }).mount('#app');

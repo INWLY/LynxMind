@@ -1,7 +1,8 @@
-import json
+﻿import json
 import os
 import re
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -12,7 +13,7 @@ from agent import chat_with_agent, chat_with_agent_stream, storage
 from auth import authenticate_user, create_access_token, get_current_user, get_db, get_password_hash, require_admin
 from document_loader import DocumentLoader
 from embedding import embedding_service
-from models import IngestionJob, User
+from models import IngestionJob, Source, User
 from news_service import _ingest_progress, create_manual_card, fetch_article, get_news_context, get_news_detail, ingest_news, list_jobs, list_news, now_utc, parse_datetime, serialize_admin_card, serialize_job, to_utc_iso
 from parent_chunk_store import ParentChunkStore
 from qdrant_store import QdrantManager
@@ -158,9 +159,10 @@ async def manual_news_ingest(request: NewsIngestRequest, _: User = Depends(requi
             db.close()
 
         import threading
+        cfg = request.config.model_dump() if hasattr(request.config, 'model_dump') else request.config.dict()
         thread = threading.Thread(
             target=ingest_news,
-            kwargs={"trigger_mode": "manual", "force": request.force, "job_id": job_id},
+            kwargs={"trigger_mode": "manual", "config": cfg, "job_id": job_id},
             daemon=True,
         )
         thread.start()
@@ -390,6 +392,66 @@ async def admin_delete_item(item_id: int, _: User = Depends(require_admin), db: 
     return {"message": f"Item #{item_id} deleted"}
 
 
+# === Admin: Sources ===
+
+
+@router.get("/admin/sources")
+def list_admin_sources(_: User = Depends(require_admin), db: Session = Depends(get_db)):
+    sources = db.query(Source).order_by(Source.name.asc()).all()
+    return [
+        {"id": s.id, "slug": s.slug, "name": s.name, "base_url": s.base_url,
+         "rss_url": s.rss_url, "source_type": s.source_type, "enabled": s.enabled}
+        for s in sources
+    ]
+
+
+@router.post("/admin/sources", response_model=AdminSourceResponse)
+def create_admin_source(request: AdminSourceCreate, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    existing = db.query(Source).filter(Source.slug == request.slug).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Source '{request.slug}' already exists")
+    source = Source(
+        slug=request.slug,
+        name=request.name,
+        base_url=request.base_url,
+        rss_url=request.rss_url or None,
+        source_type="manual",
+        enabled=True,
+        created_at=now_utc(),
+        updated_at=now_utc(),
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+@router.put("/admin/sources/{source_id}", response_model=AdminSourceResponse)
+def update_admin_source(source_id: int, request: AdminSourceUpdate,
+                        _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if request.name is not None: source.name = request.name
+    if request.base_url is not None: source.base_url = request.base_url
+    if request.rss_url is not None: source.rss_url = request.rss_url or None
+    if request.enabled is not None: source.enabled = request.enabled
+    source.updated_at = now_utc()
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+@router.delete("/admin/sources/{slug}")
+def delete_admin_source(slug: str, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.slug == slug).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    db.delete(source)
+    db.commit()
+    return {"message": f"Source '{slug}' deleted"}
+
+
 # === Sessions ===
 
 @router.get("/sessions/{session_id}", response_model=SessionMessagesResponse)
@@ -481,6 +543,7 @@ async def chat_stream_endpoint(
                 attachment_context=request.attachment_context,
                 attachment_files=request.attachment_files,
                 news_context=news_context,
+                web_search_enabled=request.web_search_enabled,
             ):
                 yield chunk
         except Exception as exc:
@@ -639,3 +702,5 @@ async def delete_document(filename: str, _: User = Depends(require_admin)):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
+
+

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+﻿from pydantic import BaseModel
 from typing import Optional, List
 
 __all__ = [
@@ -9,8 +9,9 @@ __all__ = [
     "SessionDeleteResponse", "SessionTitleUpdateRequest", "SessionTitleUpdateResponse",
     "DocumentInfo", "DocumentListResponse", "DocumentUploadResponse", "DocumentDeleteResponse",
     "SourceInfo", "NewsCardSummary", "NewsListResponse", "NewsDetailResponse", "NewsAskResponse",
-    "IngestionJobInfo", "IngestionJobListResponse", "NewsIngestRequest", "NewsIngestResponse",
+    "IngestionJobInfo", "IngestionJobListResponse", "NewsIngestConfig", "NewsIngestRequest", "NewsIngestResponse",
     "AdminCreateCardRequest", "AdminUpdateCardRequest", "AdminCardResponse", "AdminCardListResponse",
+    "AdminSourceCreate", "AdminSourceUpdate", "AdminSourceResponse",
 ]
 
 
@@ -44,6 +45,7 @@ class ChatRequest(BaseModel):
     attachment_context: Optional[str] = None
     attachment_files: Optional[List[str]] = None
     news_id: Optional[int] = None
+    web_search_enabled: bool = False
 
 
 class RetrievedChunk(BaseModel):
@@ -143,6 +145,30 @@ class SourceInfo(BaseModel):
     enabled: bool
 
 
+class AdminSourceCreate(BaseModel):
+    slug: str
+    name: str
+    base_url: str
+    rss_url: Optional[str] = None
+
+
+class AdminSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    rss_url: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class AdminSourceResponse(BaseModel):
+    id: int
+    slug: str
+    name: str
+    base_url: str
+    rss_url: Optional[str] = None
+    source_type: str
+    enabled: bool
+
+
 class NewsCardSummary(BaseModel):
     id: int
     title: str
@@ -198,8 +224,16 @@ class IngestionJobListResponse(BaseModel):
     jobs: List[IngestionJobInfo]
 
 
-class NewsIngestRequest(BaseModel):
+class NewsIngestConfig(BaseModel):
+    mode: str = "normal"  # "strict" | "normal" | "lenient"
     force: bool = False
+    lookback_days: Optional[int] = None
+    min_body_length: Optional[int] = None
+    source_slugs: Optional[List[str]] = None  # null/empty = all sources
+
+
+class NewsIngestRequest(BaseModel):
+    config: NewsIngestConfig = NewsIngestConfig()
 
 
 class NewsIngestResponse(BaseModel):
@@ -243,3 +277,5 @@ class AdminCardResponse(BaseModel):
 class AdminCardListResponse(BaseModel):
     items: List[AdminCardResponse]
     total: int
+
+

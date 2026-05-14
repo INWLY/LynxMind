@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -268,6 +268,34 @@
                                                 </div>
                                             </div>
                                             <div v-else class="markdown-body" v-html="parseMarkdown(msg.text)"></div>
+                                            <div v-if="!msg.isUser && msg.ragSteps?.length" class="reasoning-panel">
+                                                <div class="reasoning-header" @click="msg._reasoningOpen = !msg._reasoningOpen">
+                                                    <span class="reasoning-icon"><i class="fas fa-brain"></i></span>
+                                                    <span>推理过程 ({{ msg.ragSteps.length }})</span>
+                                                    <i class="fas" :class="msg._reasoningOpen ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                                </div>
+                                                <div v-if="msg._reasoningOpen" class="reasoning-steps">
+                                                    <div v-for="(step, stepIndex) in msg.ragSteps" :key="stepIndex"
+                                                        class="reasoning-step">
+                                                        <span class="step-icon">{{ step.icon || '·' }}</span>
+                                                        <div class="step-body">
+                                                            <div class="step-label">{{ step.label }}</div>
+                                                            <div v-if="step.detail" class="step-detail">{{ step.detail }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                                        <div v-if="msg.text" class="message-actions">
+                                            <button class="msg-action-btn" @click="copyMessage(msg.text, $event)" title="复制">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                            <button v-if="msg.isUser" class="msg-action-btn" @click="editMessage(index)" title="修改">
+                                                <i class="fas fa-pen"></i> 修改
+                                            </button>
+                                            <button v-if="!msg.isUser && !msg.isThinking" class="msg-action-btn" @click="regenerateMessage(index)" title="重新生成">
+                                                <i class="fas fa-rotate"></i> 重新生成
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -292,6 +320,13 @@
                                             <input ref="chatFileInput" type="file" multiple
                                                 accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.csv,.json"
                                                 style="display:none" @change="handleChatFileSelect">
+
+                                            <button class="pill-action-btn web-toggle"
+                                                :class="{ active: webSearchEnabled }"
+                                                @click="webSearchEnabled = !webSearchEnabled"
+                                                title="网络搜索">
+                                                <i class="fas fa-globe"></i>
+                                            </button>
 
                                             <textarea ref="textarea" v-model="userInput" placeholder="输入你的追问..."
                                                 @input="autoResize" @keydown.enter.exact.prevent="sendMessage"
@@ -327,21 +362,86 @@
                 <div class="admin-card">
                     <div class="admin-card-header">
                         <div>
-                            <div class="section-title">信息抓取</div>
-                            <p>从各 AI 公司官网抓取最新动态，生成资讯卡片</p>
+                            <div class="section-title">信息采集</div>
+                            <p>从各 AI 公司官网采集最新动态，生成资讯卡片</p>
                         </div>
                     </div>
                     <div class="admin-card-body">
+                        <div class="scraping-config">
+                            <div class="config-row">
+                                <label class="config-item">
+                                    <span>过滤模式</span>
+                                    <select v-model="scrapingConfig.mode" class="config-select">
+                                        <option value="strict">严格</option>
+                                        <option value="normal">正常</option>
+                                        <option value="lenient">宽松</option>
+                                    </select>
+                                </label>
+                                <label class="config-item">
+                                    <span>时间范围</span>
+                                    <select v-model="scrapingConfig.lookback_days" class="config-select">
+                                        <option :value="null">跟随模式</option>
+                                        <option :value="3">3 天</option>
+                                        <option :value="7">7 天</option>
+                                        <option :value="14">14 天</option>
+                                        <option :value="30">30 天</option>
+                                        <option :value="60">60 天</option>
+                                    </select>
+                                </label>
+                                <label class="config-item config-checkbox">
+                                    <input type="checkbox" v-model="scrapingConfig.force">
+                                    <span>强制重新导入</span>
+                                </label>
+                            </div>
+                            <div class="config-row">
+                                <div class="config-item config-sources">
+                                    <div class="source-picker-header" @click="showSourcePicker = !showSourcePicker">
+                                        <span>厂商选择</span>
+                                        <span class="source-picker-summary">{{ scrapingSources.length ? scrapingSources.length + ' 个已选' : '全部厂商' }}</span>
+                                        <i class="fas" :class="showSourcePicker ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                    </div>
+                                    <div v-if="showSourcePicker" class="source-picker">
+                                        <label class="source-pick-all" @click="toggleAllSources">
+                                            <input type="checkbox" :checked="scrapingSources.length === adminSources.length" readonly>
+                                            <span>全部</span>
+                                        </label>
+                                        <label v-for="s in adminSources" :key="s.slug" class="source-pick-item">
+                                            <input type="checkbox" :value="s.slug" v-model="scrapingSources">
+                                            <img v-if="sourceLogo(s.name)" :src="sourceLogo(s.name).url" :alt="s.name" class="source-logo">
+                                            <span>{{ s.name }}</span>
+                                            <span class="source-del-btn" @click.prevent.stop="deleteSource(s.slug)" title="删除此厂商">×</span>
+                                        </label>
+                                        <button class="tiny-btn" @click="showNewSource = !showNewSource" style="margin-top:4px">
+                                            <i class="fas fa-plus"></i> 新增厂商
+                                        </button>
+                                        <div v-if="showNewSource" class="new-source-form">
+                                            <input v-model="newSourceForm.name" placeholder="厂商名称" class="form-input">
+                                            <input v-model="newSourceForm.slug" placeholder="标识符（英文，如 my-company）" class="form-input">
+                                            <input v-model="newSourceForm.base_url" placeholder="官网地址 https://..." class="form-input">
+                                            <input v-model="newSourceForm.rss_url" placeholder="RSS 地址（可选）" class="form-input">
+                                            <div class="form-actions">
+                                                <button class="primary-btn small" :disabled="!newSourceForm.name || !newSourceForm.slug || !newSourceForm.base_url || savingSource"
+                                                    @click="createSource">
+                                                    <i class="fas fa-save"></i> 保存
+                                                </button>
+                                                <button class="tiny-btn" @click="showNewSource = false">取消</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="scraping-controls">
                             <div class="scraping-actions">
                                 <button class="primary-btn" :disabled="scrapingActive" @click="startScraping">
                                     <i class="fas fa-cloud-download-alt"></i>
-                                    {{ scrapingActive ? '抓取中...' : '开始抓取' }}
+                                    {{ scrapingActive ? '采集中...' : '开始采集' }}
                                 </button>
-                                <span v-if="scrapingActive" class="scraping-hint">抓取过程可能需要几分钟，请勿关闭页面</span>
+                                <span v-if="scrapingActive" class="scraping-hint">采集过程可能需要几分钟，请勿关闭页面</span>
                             </div>
                             <button class="tiny-btn danger" @click="deleteAllNews">
-                                <i class="fas fa-trash"></i> 删除所有资讯
+                                <i class="fas fa-trash"></i> 删除所有卡片
                             </button>
                         </div>
 
@@ -354,11 +454,11 @@
                                 <span class="progress-num">{{ scrapingProgress }} / {{ scrapingTotal }}</span>
                             </div>
                             <div v-if="scrapingJob.status === 'success'" class="job-result success">
-                                <i class="fas fa-check-circle"></i> 抓取完成：共导入 {{ scrapingJob.imported_count }} 条，跳过 {{
+                                <i class="fas fa-check-circle"></i> 采集完成：共导入 {{ scrapingJob.imported_count }} 条，跳过 {{
                                 scrapingJob.skipped_count }} 条
                             </div>
                             <div v-else-if="scrapingJob.status === 'failed'" class="job-result failed">
-                                <i class="fas fa-exclamation-circle"></i> 抓取失败：{{ scrapingJob.error_message || '未知错误' }}
+                                <i class="fas fa-exclamation-circle"></i> 采集失败：{{ scrapingJob.error_message || '未知错误' }}
                             </div>
                         </div>
                     </div>

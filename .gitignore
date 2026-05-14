@@ -44,5 +44,8 @@ bge-m3/
 # Personal notes
 NOTES.md
 
+# Agent instruction files (per-developer)
+AGENTS.md
+
 # Project specific
 *.m3

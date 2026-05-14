@@ -1,4 +1,4 @@
-const { createApp } = Vue;
+﻿const { createApp } = Vue;
 
 createApp({
     data() {
@@ -51,11 +51,18 @@ createApp({
             chatAttachments: [],
             isParsingAttachment: false,
             currentNewsContext: null,
+            editingMessageIndex: null,
             _pickerTimer: null,
 
             // Admin
             scrapingJob: null,
             scrapingEventSource: null,
+            scrapingConfig: { mode: 'normal', lookback_days: null, force: false },
+            scrapingSources: [],
+            showSourcePicker: false,
+            showNewSource: false,
+            newSourceForm: { name: '', slug: '', base_url: '', rss_url: '' },
+            savingSource: false,
             documents: [],
             docsLoading: false,
             docUploading: false,
@@ -351,7 +358,14 @@ createApp({
                         const parsed = this.parseUserMessageDisplay(msg.content);
                         return { text: parsed.text, attachments: parsed.attachments, isUser: true };
                     }
-                    return { text: msg.content, isUser: false, ragTrace: msg.rag_trace || null };
+                    const rt = msg.rag_trace || {};
+                    const steps = (rt.rag_steps || []).map(s => ({ icon: s.icon || '', label: s.label || '', detail: s.detail || '' }));
+                    return {
+                        text: msg.content,
+                        isUser: false,
+                        ragSteps: steps,
+                        _reasoningOpen: false,
+                    };
                 });
 
                 // 🌟 2. 【终极恢复方案】：先查浏览器的本地小本本，直接恢复！
@@ -397,6 +411,9 @@ createApp({
             let text = String(content || '');
             let attachments = [];
 
+            // Strip [当前日期：...] prefix injected for the model
+            text = text.replace(/^\[当前日期：.*?\]\n?/, '').trim();
+
             // Strip [当前资讯上下文] block appended for the model
             text = text.replace(/\n?\n?\[当前资讯上下文\]\n[\s\S]*$/, '').trim();
 
@@ -421,8 +438,14 @@ createApp({
             const attachmentContext = this.chatAttachments.map(a => `# ${a.name}\n${a.text}`).join('\n\n');
             const attachmentFiles = this.chatAttachments.map(a => a.name);
 
+            // If editing an existing message, truncate everything from that point
+            if (this.editingMessageIndex !== null) {
+                this.messages.splice(this.editingMessageIndex);
+                this.editingMessageIndex = null;
+            }
+
             this.messages.push({ text, isUser: true, attachments: [...attachmentFiles] });
-            const botIdx = this.messages.push({ text: '', isUser: false, isThinking: true, ragSteps: [] }) - 1;
+            const botIdx = this.messages.push({ text: '', isUser: false, isThinking: true, ragSteps: [], _reasoningOpen: false }) - 1;
             
             if (!this.sessions.find(s => s.session_id === this.sessionId)) {
                 this.sessions.unshift({
@@ -453,6 +476,7 @@ createApp({
                         attachment_context: attachmentContext || null,
                         attachment_files: attachmentFiles.length ? attachmentFiles : null,
                         news_id: this.currentNewsContext?.id || null,
+                        web_search_enabled: this.webSearchEnabled,
                     }),
                     signal: this.abortController.signal,
                 });
@@ -551,6 +575,59 @@ createApp({
         },
         removeChatAttachment(idx) { this.chatAttachments.splice(idx, 1); },
 
+        copyMessage(text, event) {
+            if (!text) return;
+            const btn = event?.currentTarget;
+            const icon = btn?.querySelector('i');
+            const doCopy = () => {
+                if (icon) {
+                    icon.className = 'fas fa-check';
+                    if (btn) btn.style.color = '#16a34a';
+                }
+                setTimeout(() => {
+                    if (icon) icon.className = 'fas fa-copy';
+                    if (btn) btn.style.color = '';
+                }, 1200);
+            };
+            navigator.clipboard.writeText(text).then(doCopy).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                doCopy();
+            });
+        },
+
+        editMessage(index) {
+            const msg = this.messages[index];
+            if (!msg || !msg.isUser) return;
+            this.userInput = msg.text;
+            this.editingMessageIndex = index;
+            this.$nextTick(() => {
+                const ta = this.$refs.textarea;
+                if (ta) { ta.focus(); this.autoResize({ target: ta }); }
+            });
+        },
+
+        regenerateMessage(index) {
+            const msg = this.messages[index];
+            if (!msg || msg.isUser || this.isLoading) return;
+            // Find the preceding user message
+            let userIdx = index - 1;
+            while (userIdx >= 0 && !this.messages[userIdx].isUser) userIdx--;
+            if (userIdx < 0) return;
+            const userMsg = this.messages[userIdx];
+            // Truncate from the user message onwards (removes user msg + all subsequent AI msgs)
+            this.messages.splice(userIdx);
+            // Put the user message text into input and send
+            this.userInput = userMsg.text;
+            this.$nextTick(() => { this.sendMessage(); });
+        },
+
         // === Admin helpers ===
 
         async fetchLatestJob() {
@@ -564,22 +641,68 @@ createApp({
 
         // === Admin: Scraping ===
 
+        toggleAllSources() {
+            this.scrapingSources = this.scrapingSources.length === this.adminSources.length
+                ? []
+                : this.adminSources.map(s => s.slug);
+        },
+
+        async createSource() {
+            const f = this.newSourceForm;
+            if (!f.name || !f.slug || !f.base_url) return;
+            this.savingSource = true;
+            try {
+                const r = await this.authFetch('/admin/sources', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(f),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || '创建失败');
+                }
+                this.newSourceForm = { name: '', slug: '', base_url: '', rss_url: '' };
+                this.showNewSource = false;
+                await this.loadNews();
+            } catch (e) {
+                alert(`新增厂商失败: ${e.message}`);
+            } finally {
+                this.savingSource = false;
+            }
+        },
+
+        async deleteSource(slug) {
+            if (!confirm(`确定要删除厂商 "${slug}" 吗？`)) return;
+            try {
+                const r = await this.authFetch(`/admin/sources/${slug}`, { method: 'DELETE' });
+                if (!r.ok) throw new Error('删除失败');
+                this.scrapingSources = this.scrapingSources.filter(s => s !== slug);
+                await this.loadNews();
+            } catch (e) {
+                alert(`删除厂商失败: ${e.message}`);
+            }
+        },
+
         async startScraping() {
             this.disconnectIngestStream();
             this.scrapingJob = null;
             try {
+                const payload = { ...this.scrapingConfig };
+                if (this.scrapingSources.length && this.scrapingSources.length < this.adminSources.length) {
+                    payload.source_slugs = this.scrapingSources;
+                }
                 const r = await this.authFetch('/admin/news/ingest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ force: false }),
+                    body: JSON.stringify({ config: payload }),
                 });
-                if (!r.ok) throw new Error('启动抓取失败');
+                if (!r.ok) throw new Error('启动采集失败');
                 const data = await r.json();
                 const job = data.job || data;
                 this.scrapingJob = job;
                 this.connectIngestStream(job.id);
             } catch (e) {
-                alert(`抓取启动失败: ${e.message}`);
+                alert(`采集启动失败: ${e.message}`);
             }
         },
 
@@ -928,3 +1051,6 @@ startPickerScroll() {
 
     },
 }).mount('#app');
+
+
+

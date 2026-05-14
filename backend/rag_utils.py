@@ -15,6 +15,7 @@ from qdrant_store import QdrantManager
 load_dotenv()
 
 MODEL = os.getenv("MODEL", "ep-20250227110822-5lvjg")
+FAST_MODEL = os.getenv("FAST_MODEL", "")
 BASE_URL = os.getenv("BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "openai")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "")
@@ -117,7 +118,7 @@ def _get_stepback_model():
     global _stepback_model
     if _stepback_model is None:
         _stepback_model = init_chat_model(
-            model=MODEL,
+            model=FAST_MODEL or MODEL,
             model_provider=MODEL_PROVIDER,
             api_key=os.getenv("ARK_API_KEY"),
             base_url=BASE_URL,

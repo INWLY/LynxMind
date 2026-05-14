@@ -31,8 +31,8 @@ class QdrantManager:
         try:
             client.create_collection(
                 collection_name=name,
-                vectors_config=vectors_config,
-                sparse_vectors_config={"bm25": sparse_config},
+                vectors_config={"dense_embedding": vectors_config},
+                sparse_vectors_config={"sparse_embedding": sparse_config},
             )
         except Exception:
             pass  # collection already exists
@@ -61,7 +61,7 @@ class QdrantManager:
             points=[
                 models.PointStruct(
                     id=point_id,
-                    vector={"": vector, "bm25": self._to_sparse_vector(sparse_vector)},
+                    vector={"dense_embedding": vector, "sparse_embedding": self._to_sparse_vector(sparse_vector)},
                     payload=payload,
                 )
             ],
@@ -189,18 +189,22 @@ class QdrantManager:
         client = self._get_client()
         name = collection_name or os.getenv("QDRANT_COLLECTION", "documents")
 
-        dense_results = client.search(
+        dense_result = client.query_points(
             collection_name=name,
-            query_vector=("", dense_vector),
+            query=dense_vector,
+            using="dense_embedding",
             limit=top_k,
             with_payload=True,
         )
-        sparse_results = client.search(
+        dense_results = dense_result.points
+        sparse_result = client.query_points(
             collection_name=name,
-            query_vector=("bm25", self._to_sparse_vector(sparse_vector)),
+            query=self._to_sparse_vector(sparse_vector),
+            using="sparse_embedding",
             limit=top_k,
             with_payload=True,
         )
+        sparse_results = sparse_result.points
 
         dense_items = [(str(r.id), r.score) for r in dense_results]
         sparse_items = [(str(r.id), r.score) for r in sparse_results]
@@ -227,13 +231,15 @@ class QdrantManager:
     ) -> list[dict]:
         client = self._get_client()
         name = collection_name or os.getenv("QDRANT_COLLECTION", "documents")
-        results = client.search(
+        result = client.query_points(
             collection_name=name,
-            query_vector=("", dense_vector),
+            query=dense_vector,
+            using="dense_embedding",
             limit=top_k,
             with_payload=True,
         )
-        return [{"id": str(r.id), "score": r.score, **(r.payload or {})} for r in results]
+        points = result.points
+        return [{"id": str(r.id), "score": r.score, **(r.payload or {})} for r in points]
 
     def delete(
         self,

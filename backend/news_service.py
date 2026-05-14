@@ -1026,7 +1026,8 @@ _ingest_progress: dict[int, dict] = {}
 """Cache of latest progress for each running job, read by the SSE endpoint."""
 
 
-def _process_single_source(source_id: int, force: bool, lookback_cutoff: datetime) -> dict:
+def _process_single_source(source_id: int, force: bool, lookback_cutoff: datetime,
+                           min_body_length: int = 120) -> dict:
     """Process one source entirely within its own thread & DB session.
 
     Returns a result dict with keys: slug, fetched, imported, skipped, errors.
@@ -1059,7 +1060,7 @@ def _process_single_source(source_id: int, force: bool, lookback_cutoff: datetim
             body = normalize_whitespace(article.get("body", ""))
             published_at = article.get("published_at") or candidate.get("published_at")
 
-            if not title or len(body) < 120:
+            if not title or len(body) < min_body_length:
                 result["skipped"] += 1
                 continue
             if published_at and published_at < lookback_cutoff and not force:
@@ -1117,9 +1118,10 @@ def _process_single_source(source_id: int, force: bool, lookback_cutoff: datetim
         db.close()
 
 
-def ingest_news(trigger_mode: str = "manual", force: bool = False, job_id: int | None = None) -> dict[str, Any]:
+def ingest_news(trigger_mode: str = "manual", config: dict | None = None, job_id: int | None = None) -> dict[str, Any]:
     """Run a full news ingestion cycle with parallel source processing.
 
+    *config* can include: mode (strict/normal/lenient), force, lookback_days, min_body_length.
     When *job_id* is provided, the job record already exists in the DB
     (created by the API endpoint).  Otherwise a new job is created here
     (scheduler path).
@@ -1144,13 +1146,30 @@ def ingest_news(trigger_mode: str = "manual", force: bool = False, job_id: int |
         db.close()
 
     job_id = job.id
-    lookback_cutoff = now_utc() - timedelta(days=NEWS_FETCH_LOOKBACK_DAYS)
-    print(f"[采集任务 #{job_id}] 开始 (并行模式)")
+
+    # Resolve ingest config (mode presets + overrides)
+    cfg = config or {}
+    mode_presets = {
+        "strict": {"min_body_length": 200, "lookback_days": 7},
+        "normal": {"min_body_length": 120, "lookback_days": 14},
+        "lenient": {"min_body_length": 80, "lookback_days": 30},
+    }
+    mode = cfg.get("mode", "normal")
+    preset = mode_presets.get(mode, mode_presets["normal"])
+    min_body_length = cfg.get("min_body_length") or preset["min_body_length"]
+    effective_lookback = cfg.get("lookback_days") or preset["lookback_days"]
+    force = cfg.get("force", False)
+
+    lookback_cutoff = now_utc() - timedelta(days=effective_lookback)
+    print(f"[采集任务] 开始 ({mode}, {effective_lookback}天回溯, 最小正文{min_body_length}字符)")
 
     # Get the list of enabled source IDs
     db = SessionLocal()
     try:
         sources = db.query(Source).filter(Source.enabled.is_(True)).order_by(Source.name.asc()).all()
+        source_slugs = cfg.get("source_slugs")
+        if source_slugs:
+            sources = [s for s in sources if s.slug in source_slugs]
         source_ids = [s.id for s in sources]
         total = len(source_ids)
     finally:
@@ -1167,7 +1186,7 @@ def ingest_news(trigger_mode: str = "manual", force: bool = False, job_id: int |
         # Process sources in parallel — I/O bound work
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
-                executor.submit(_process_single_source, sid, force, lookback_cutoff): sid
+                executor.submit(_process_single_source, sid, force, lookback_cutoff, min_body_length): sid
                 for sid in source_ids
             }
 
@@ -1178,7 +1197,7 @@ def ingest_news(trigger_mode: str = "manual", force: bool = False, job_id: int |
                 aggregated["errors"].extend(result.get("errors", []))
 
                 slug = result.get("slug", "?")
-                print(f"  [{idx}/{total}] {slug}: +{result.get('imported', 0)} imported, {result.get('skipped', 0)} skipped")
+                print(f"  [{idx}/{total}] {slug}: +{result.get('imported', 0)} / 跳过 {result.get('skipped', 0)}")
 
                 _ingest_progress[job_id] = {
                     "type": "progress", "status": "running",
@@ -1226,8 +1245,8 @@ def ingest_news(trigger_mode: str = "manual", force: bool = False, job_id: int |
         "error_message": error_msg,
     }
 
-    print(f"[采集任务 #{job_id}] {status}: "
-          f"导入 {aggregated['imported']}, 跳过 {aggregated['skipped']}, "
+    print(f"[采集任务] {status}: "
+          f"+{aggregated['imported']} / 跳过 {aggregated['skipped']} / "
           f"错误 {len(aggregated['errors'])}")
     return payload
 
@@ -1276,7 +1295,7 @@ class NewsIngestionScheduler:
             try:
                 now_local = datetime.now(SHANGHAI_TZ)
                 if now_local.hour >= DEFAULT_NEWS_IMPORT_HOUR and not self._already_ran_today():
-                    await asyncio.to_thread(ingest_news, "scheduled", False)
+                    await asyncio.to_thread(ingest_news, "scheduled")
             except Exception:
                 pass
 

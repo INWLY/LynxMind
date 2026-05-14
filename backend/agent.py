@@ -1,4 +1,4 @@
-"""LangChain chat agent with session persistence and streaming support."""
+﻿"""LangChain chat agent with session persistence and streaming support."""
 import asyncio
 import json
 import os
@@ -20,7 +20,10 @@ from tools import (
     get_last_rag_context,
     reset_tool_call_guards,
     search_knowledge_base,
+    search_web_serpapi,
+    search_web_tavily,
     set_rag_step_queue,
+    set_web_search_enabled,
 )
 
 load_dotenv()
@@ -39,8 +42,11 @@ SYSTEM_PROMPT = (
     "## Capabilities & Workflow\n"
     "- Context First: Always prioritize the provided [News Context], "
     "[Attachment Content], or retrieved RAG knowledge to formulate your answers.\n"
-    "- Tool Usage: Use available tools (e.g., knowledge base search, weather) "
+    "- Tool Usage: Use available tools (e.g., knowledge base search, weather, web search) "
     "proactively when the user's query requires real-time or specific domain facts.\n"
+    "- Web Search: When the user asks about current events, real-time information, "
+    "today's date/time, weather, or any topic requiring the latest data, "
+    "use the web search tool (search_web_tavily or search_web_serpapi) to retrieve up-to-date information.\n"
     "- Synthesis: When given multiple sources of information, cross-reference them "
     "and point out connections, contradictions, or overarching trends.\n\n"
     "## Tone & Style\n"
@@ -94,7 +100,7 @@ class ConversationStorage:
                 return cls._normalize_session_title(text[:50])
         return "新对话"
 
-    def save(self, user_id: str, session_id: str, messages: list, metadata: dict | None = None) -> None:
+    def save(self, user_id: str, session_id: str, messages: list, metadata: dict | None = None, rag_steps: list | None = None) -> None:
         db = SessionLocal()
         try:
             user = db.query(User).filter(User.username == user_id).first()
@@ -137,22 +143,28 @@ class ConversationStorage:
                 
             session.metadata_json = new_meta # 重新赋值触发入库
 
-            # Delete old messages and insert new ones
+            # Preserve old rag_traces, then re-insert all messages
+            old_chats = db.query(ChatMessage).filter(ChatMessage.session_ref_id == session.id).order_by(ChatMessage.id).all()
             db.query(ChatMessage).filter(ChatMessage.session_ref_id == session.id).delete()
-            for msg in messages:
+            for idx, msg in enumerate(messages):
                 if isinstance(msg, HumanMessage):
                     msg_type = "human"
                 elif isinstance(msg, AIMessage):
                     msg_type = "ai"
                 else:
                     msg_type = "system"
-                db.add(
-                    ChatMessage(
-                        session_ref_id=session.id,
-                        message_type=msg_type,
-                        content=msg.content,
-                    )
-                )
+                kwargs = {
+                    "session_ref_id": session.id,
+                    "message_type": msg_type,
+                    "content": msg.content,
+                }
+                # Preserve old rag_trace for existing messages (matched by position)
+                if idx < len(old_chats) and old_chats[idx].rag_trace is not None:
+                    kwargs["rag_trace"] = old_chats[idx].rag_trace
+                # Only apply new rag_steps to the brand-new (last) AI message
+                elif msg_type == "ai" and rag_steps and idx >= len(old_chats):
+                    kwargs["rag_trace"] = {"rag_steps": rag_steps}
+                db.add(ChatMessage(**kwargs))
             db.commit()
         finally:
             db.close()
@@ -351,7 +363,19 @@ def _build_model_user_text(
     attachment_files: list[str] | None,
     news_context: dict | None,
 ) -> str:
+    import re
+    from datetime import datetime
     parts = [user_text.strip()]
+    _date_pat = re.compile(
+        r"今天(是|几号|多少号|周几|星期几|什么日期|啥日期|哪一天|日期)"
+        r"|现在(是|几点|什么时间|啥时间|什么时候|几点了|时间)"
+        r"|当前(时间|日期|时刻)"
+        r"|today|what.*date|current.*date|what.*day",
+        re.I,
+    )
+    if _date_pat.search(user_text):
+        today_str = datetime.now().strftime("%Y年%m月%d日 %A")
+        parts.insert(0, f"[当前日期：{today_str}]")
     if news_context:
         parts.append(
             f"\n\n[当前资讯上下文]\n标题: {news_context.get('title', '')}\n"
@@ -390,6 +414,7 @@ def chat_with_agent(
     attachment_context: str | None = None,
     attachment_files: list[str] | None = None,
     news_context: dict | None = None,
+    web_search_enabled: bool = False,
 ) -> dict:
     reset_tool_call_guards()
     display_text = _build_display_user_text(user_text, attachment_files)
@@ -434,8 +459,12 @@ async def chat_with_agent_stream(
     attachment_context: str | None = None,
     attachment_files: list[str] | None = None,
     news_context: dict | None = None,
+    web_search_enabled: bool = False,
 ):
     reset_tool_call_guards()
+    set_web_search_enabled(web_search_enabled)
+    if web_search_enabled:
+        print(f"[agent] web_search=ON, session={session_id}, user={user_id}", flush=True)
     display_text = _build_display_user_text(user_text, attachment_files)
     model_text = _build_model_user_text(user_text, attachment_context, attachment_files, news_context)
 
@@ -443,6 +472,7 @@ async def chat_with_agent_stream(
     history = summarize_old_messages(model, history) if len(history) > 10 else history
 
     full_response = ""
+    all_rag_steps: list[dict] = []
 
     rag_queue: asyncio.Queue = asyncio.Queue()
     set_rag_step_queue(rag_queue)
@@ -453,7 +483,10 @@ async def chat_with_agent_stream(
 
         if hasattr(model, "astream") and hasattr(model, "bind_tools"):
             # ── Real token-by-token streaming path ──
-            model_with_tools = model.bind_tools([get_current_weather, search_knowledge_base])
+            if web_search_enabled:
+                model_with_tools = model.bind_tools([get_current_weather, search_knowledge_base, search_web_tavily, search_web_serpapi])
+            else:
+                model_with_tools = model.bind_tools([get_current_weather, search_knowledge_base])
 
             # Agent loop: stream model tokens → if tool calls → execute tools → repeat
             while True:
@@ -476,6 +509,9 @@ async def chat_with_agent_stream(
                     while True:
                         step = rag_queue.get_nowait()
                         if step:
+                            step_data = step.get("step", {})
+                            if step_data:
+                                all_rag_steps.append(step_data)
                             yield f"data: {json.dumps(step)}\n\n"
                 except asyncio.QueueEmpty:
                     pass
@@ -490,13 +526,18 @@ async def chat_with_agent_stream(
                 # Emit tool call notifications and execute tools
                 for tc in accumulated.tool_calls:
                     name = tc["name"]
-                    emit_rag_step("🔧", f"正在调用工具: {name}")
+                    args_str = json.dumps(tc.get("args", {}), ensure_ascii=False)
+                    emit_rag_step("🔧", f"正在调用工具: {name}", f"参数: {args_str[:100]}")
 
                     try:
                         if name == "search_knowledge_base":
                             result = search_knowledge_base.invoke(tc["args"])
                         elif name == "get_current_weather":
                             result = get_current_weather.invoke(tc["args"])
+                        elif name == "search_web_tavily":
+                            result = search_web_tavily.invoke(tc["args"])
+                        elif name == "search_web_serpapi":
+                            result = search_web_serpapi.invoke(tc["args"])
                         else:
                             result = f"未知工具: {name}"
                     except Exception as e:
@@ -509,6 +550,9 @@ async def chat_with_agent_stream(
                     while True:
                         step = rag_queue.get_nowait()
                         if step:
+                            step_data = step.get("step", {})
+                            if step_data:
+                                all_rag_steps.append(step_data)
                             yield f"data: {json.dumps(step)}\n\n"
                 except asyncio.QueueEmpty:
                     pass
@@ -532,6 +576,9 @@ async def chat_with_agent_stream(
             while True:
                 step = rag_queue.get_nowait()
                 if step:
+                    step_data = step.get("step", {})
+                    if step_data:
+                        all_rag_steps.append(step_data)
                     yield f"data: {json.dumps(step)}\n\n"
         except asyncio.QueueEmpty:
             pass
@@ -545,7 +592,7 @@ async def chat_with_agent_stream(
             save_metadata["news_id"] = news_context["id"]
         
         try:
-            storage.save(user_id, session_id, save_messages, metadata=save_metadata or None)
+            storage.save(user_id, session_id, save_messages, metadata=save_metadata or None, rag_steps=all_rag_steps or None)
         except Exception as e:
             print(f"Error saving session: {e}")
 
@@ -558,3 +605,7 @@ async def chat_with_agent_stream(
         pass
     finally:
         set_rag_step_queue(None)
+
+
+
+

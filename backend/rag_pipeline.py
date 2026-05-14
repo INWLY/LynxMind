@@ -21,6 +21,7 @@ MODEL = os.getenv("MODEL", "ep-20250227110822-5lvjg")
 BASE_URL = os.getenv("BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "openai")
 GRADE_MODEL = os.getenv("GRADE_MODEL", "gpt-4.1")
+FAST_MODEL = os.getenv("FAST_MODEL", "")
 
 _grader_model = None
 _router_model = None
@@ -42,7 +43,7 @@ def _get_router_model():
     global _router_model
     if _router_model is None:
         _router_model = init_chat_model(
-            model=MODEL,
+            model=FAST_MODEL or MODEL,
             model_provider=MODEL_PROVIDER,
             api_key=API_KEY,
             base_url=BASE_URL,
@@ -100,7 +101,7 @@ def _format_docs(docs: List[dict]) -> str:
 
 
 def retrieve_initial(state: RAGState) -> dict:
-    emit_rag_step("🔍", "正在进行初步检索...")
+    emit_rag_step("🔍", "正在检索知识库", f"查询: {state['question'][:80]}")
     result = retrieve_documents(state["question"], top_k=10)
     initial_docs = result.get("docs", [])
     return {
@@ -118,8 +119,6 @@ def grade_documents_node(state: RAGState) -> dict:
     if not docs:
         return {"docs": [], "rewrite_needed": False}
 
-    emit_rag_step("📊", "正在评估文档相关性...")
-
     model = _get_grader_model()
     grader = model.with_structured_output(GradeDocuments)
 
@@ -136,6 +135,8 @@ def grade_documents_node(state: RAGState) -> dict:
         except Exception:
             filtered_docs.append(doc)
 
+    emit_rag_step("📊", "文档相关性评估完成", f"通过 {len(filtered_docs)}/{len(docs)} 篇")
+
     rewrite_needed = len(filtered_docs) < len(docs) * 0.5 if docs else False
     return {
         "docs": filtered_docs,
@@ -144,8 +145,6 @@ def grade_documents_node(state: RAGState) -> dict:
 
 
 def rewrite_question_node(state: RAGState) -> dict:
-    emit_rag_step("🔄", "正在尝试优化查询...")
-
     model = _get_router_model()
     router = model.with_structured_output(RewriteStrategy)
 
@@ -159,6 +158,8 @@ def rewrite_question_node(state: RAGState) -> dict:
         strategy = route_result.strategy
     except Exception:
         strategy = "step_back"
+
+    emit_rag_step("🔄", "正在优化查询", f"策略: {strategy}")
 
     updates = {"expansion_type": strategy}
 
@@ -180,7 +181,7 @@ def retrieve_expanded(state: RAGState) -> dict:
     query = state.get("rewrite_query") or state["question"]
 
     if state.get("expansion_type") == "hyde" and state.get("hypothetical_doc"):
-        emit_rag_step("🔍", "正在使用 HyDE 增强检索...")
+        emit_rag_step("🔍", "正在使用 HyDE 增强检索", f"查询: {query[:60]}")
         result = retrieve_documents(query, top_k=10)
         hyde_result = retrieve_documents(state["hypothetical_doc"], top_k=5)
         all_docs = result.get("docs", []) + hyde_result.get("docs", [])
@@ -195,7 +196,7 @@ def retrieve_expanded(state: RAGState) -> dict:
         context = _format_docs(deduped)
         return {"expanded_docs": deduped, "context": context, "retrieval_stage": "expanded"}
     else:
-        emit_rag_step("🔍", "正在使用优化查询重新检索...")
+        emit_rag_step("🔍", "正在使用优化查询重新检索", f"查询: {query[:60]}")
         result = retrieve_documents(query, top_k=10)
         expanded_docs = result.get("docs", [])
         all_docs = state.get("docs", []) + expanded_docs

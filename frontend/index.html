@@ -33,7 +33,7 @@
 
                 <div v-if="activeNav === 'chat' && currentNewsContext" class="top-context-pill">
                     <span class="context-label">锚点资讯</span>
-                    <strong :title="currentNewsContext.title">{{ currentNewsContext.title }}</strong>
+                    <strong :title="displayText(currentNewsContext.title)">{{ displayText(currentNewsContext.title) }}</strong>
                     <button class="icon-btn" @click="clearNewsContext" title="清除锚点">
                         <i class="fas fa-times"></i>
                     </button>
@@ -137,23 +137,129 @@
                     <p>正在整理今天的 AI 动态...</p>
                 </section>
 
-                <section v-if="!newsLoading && newsItems.length" class="news-grid">
-                    <article v-for="(item, index) in newsItems" :key="item.id" class="news-card"
-                        :class="cardVariant(index)" @click="openNewsDetail(item.id)">
-                        <div class="news-card-top">
-                            <div class="source-badge">
-                                <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
-                                    :alt="item.source_name" class="source-logo">
-                                {{ item.source_name }}
+                <section v-if="!newsLoading && newsItems.length" class="magazine-feed">
+                    <div class="section-heading">
+                        <div>
+                            <div class="eyebrow">{{ activeFilterLabel }}</div>
+                            <h3>今日观察</h3>
+                        </div>
+                        <span>{{ newsItems.length }} 条正在追踪</span>
+                    </div>
+
+                    <section class="editorial-grid">
+                        <article v-if="leadStory" class="lead-story" :style="accentStyle(leadStory, 0)"
+                            @click="openNewsDetail(leadStory.id)">
+                            <div class="news-card-top">
+                                <div class="source-badge">
+                                    <img v-if="sourceLogo(leadStory.source_name)"
+                                        :src="sourceLogo(leadStory.source_name).url" :alt="leadStory.source_name"
+                                        class="source-logo">
+                                    {{ leadStory.source_name }}
+                                </div>
+                                <span class="news-date">{{ formatDateShort(leadStory.published_at) || '时间未知' }}</span>
                             </div>
-                            <span class="news-date">{{ formatDateShort(item.published_at) || '时间未知' }}</span>
+                            <h4>{{ displayText(leadStory.title) }}</h4>
+                            <p>{{ leadStory.summary || leadStory.one_line_summary }}</p>
+                            <div class="tag-list compact">
+                                <span v-for="tag in leadStory.tags" :key="tag" class="tag">{{ tag }}</span>
+                            </div>
+                        </article>
+
+                        <article v-for="(item, index) in sideStories" :key="item.id" class="side-story"
+                            :style="accentStyle(item, index + 1)" @click="openNewsDetail(item.id)">
+                            <div class="news-card-top">
+                                <div class="source-badge">
+                                    <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
+                                        :alt="item.source_name" class="source-logo">
+                                    {{ item.source_name }}
+                                </div>
+                                <span class="news-date">{{ formatDateShort(item.published_at) || '时间未知' }}</span>
+                            </div>
+                            <h4>{{ displayText(item.title) }}</h4>
+                            <p>{{ item.one_line_summary || item.summary }}</p>
+                            <div v-if="item.tags?.length" class="tag-list compact">
+                                <span v-for="tag in item.tags.slice(0, 3)" :key="tag" class="tag">{{ tag }}</span>
+                            </div>
+                        </article>
+                    </section>
+
+                    <section v-if="briefingItems.length" class="briefing-strip">
+                        <div class="section-heading compact-heading">
+                            <div>
+                                <div class="eyebrow">Briefing</div>
+                                <h3>快讯纵览</h3>
+                            </div>
                         </div>
-                        <h4>{{ item.title }}</h4>
-                        <p class="news-summary">{{ item.one_line_summary || item.summary }}</p>
-                        <div class="tag-list compact">
-                            <span v-for="tag in item.tags" :key="tag" class="tag">{{ tag }}</span>
+                        <div class="briefing-rail">
+                            <button v-for="(item, index) in briefingItems" :key="item.id" class="briefing-item"
+                                :style="accentStyle(item, index + 3)" @click="openNewsDetail(item.id)">
+                                <span class="briefing-meta">
+                                    <span class="briefing-source">
+                                        <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
+                                            :alt="item.source_name" class="source-logo">
+                                        <span>{{ item.source_name }}</span>
+                                    </span>
+                                    <span>{{ formatDateShort(item.published_at) || '未知' }}</span>
+                                </span>
+                                <strong>{{ displayText(item.title) }}</strong>
+                            </button>
                         </div>
-                    </article>
+                    </section>
+
+                    <section v-if="topicGroups.length" class="topic-section">
+                        <div class="section-heading compact-heading">
+                            <div>
+                                <div class="eyebrow">Signals</div>
+                                <h3>专题聚合</h3>
+                            </div>
+                        </div>
+                        <div class="topic-grid">
+                            <article v-for="group in topicGroups" :key="group.tag" class="topic-card">
+                                <div class="topic-title"># {{ group.tag }}</div>
+                                <button v-for="(item, index) in group.items" :key="item.id" class="topic-item"
+                                    :style="accentStyle(item, index)" @click="openNewsDetail(item.id)">
+                                    <strong>{{ displayText(item.title) }}</strong>
+                                    <span class="topic-source-meta">
+                                        <span class="topic-source">
+                                            <img v-if="sourceLogo(item.source_name)" :src="sourceLogo(item.source_name).url"
+                                                :alt="item.source_name" class="source-logo">
+                                            <span>{{ item.source_name }}</span>
+                                        </span>
+                                        <span>{{ formatDateShort(item.published_at) || '时间未知' }}</span>
+                                    </span>
+                                </button>
+                            </article>
+                        </div>
+                    </section>
+
+                    <section v-if="remainingNewsItems.length" class="all-news-section">
+                        <div class="section-heading compact-heading">
+                            <div>
+                                <div class="eyebrow">Archive</div>
+                                <h3>全部资讯</h3>
+                            </div>
+                        </div>
+                        <div class="news-grid">
+                            <article v-for="(item, index) in remainingNewsItems" :key="item.id" class="news-card"
+                                :class="cardVariant(index)" :style="accentStyle(item, index + 9)"
+                                @click="openNewsDetail(item.id)">
+                                <div class="news-card-top">
+                                    <div class="source-badge">
+                                        <img v-if="sourceLogo(item.source_name)"
+                                            :src="sourceLogo(item.source_name).url" :alt="item.source_name"
+                                            class="source-logo">
+                                        {{ item.source_name }}
+                                    </div>
+                                    <span class="news-date">{{ formatDateShort(item.published_at) || '时间未知' }}</span>
+                                </div>
+                                <h4>{{ displayText(item.title) }}</h4>
+                                <p class="news-summary">{{ item.one_line_summary || item.summary }}</p>
+                                <div class="tag-list compact">
+                                    <span v-for="tag in item.tags" :key="tag" class="tag">{{ tag }}</span>
+                                </div>
+                            </article>
+                        </div>
+                    </section>
                 </section>
 
                 <section v-if="!newsLoading && !newsItems.length" class="empty-state">
@@ -223,7 +329,7 @@
                                                         </span>
                                                         <span class="picker-date">{{ formatDateShort(item.published_at) }}</span>
                                                     </span>
-                                                    <strong class="picker-title">{{ item.title }}</strong>
+                                                    <strong class="picker-title">{{ displayText(item.title) }}</strong>
                                                 </button>
                                                 <button v-for="item in newsItems" :key="'dup-'+item.id"
                                                     class="picker-card"
@@ -237,7 +343,7 @@
                                                         </span>
                                                         <span class="picker-date">{{ formatDateShort(item.published_at) }}</span>
                                                     </span>
-                                                    <strong class="picker-title">{{ item.title }}</strong>
+                                                    <strong class="picker-title">{{ displayText(item.title) }}</strong>
                                                 </button>
                                             </div>
                                         </div>
@@ -575,7 +681,7 @@
                             :alt="selectedNewsDetail.item.source_name" class="source-logo">
                         {{ selectedNewsDetail.item.source_name }}
                     </div>
-                    <h3>{{ selectedNewsDetail.item.title }}</h3>
+                    <h3>{{ displayText(selectedNewsDetail.item.title) }}</h3>
                 </div>
                 <button class="icon-text-btn" @click="selectedNewsDetail = null">关闭</button>
             </div>
@@ -600,7 +706,7 @@
                     <div class="section-title">相关资讯</div>
                     <button v-for="item in selectedNewsDetail.related_items" :key="item.id" class="related-item"
                         @click="openNewsDetail(item.id)">
-                        <strong>{{ item.title }}</strong>
+                        <strong>{{ displayText(item.title) }}</strong>
                         <span>{{ item.source_name }}</span>
                     </button>
                 </div>

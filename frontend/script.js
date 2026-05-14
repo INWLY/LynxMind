@@ -85,6 +85,44 @@ createApp({
             const half = Math.ceil(this.floatingLogos.length / 2);
             return this.floatingLogos.slice(half);
         },
+        leadStory() {
+            return this.newsItems[0] || null;
+        },
+        sideStories() {
+            return this.newsItems.slice(1, 3);
+        },
+        briefingItems() {
+            return this.newsItems.slice(3, 9);
+        },
+        remainingNewsItems() {
+            return this.newsItems.slice(9);
+        },
+        topicGroups() {
+            const groups = new Map();
+            this.newsItems.slice(0, 50).forEach(item => {
+                (item.tags || []).forEach(rawTag => {
+                    const tag = String(rawTag || '').trim();
+                    if (!tag) return;
+                    if (!groups.has(tag)) groups.set(tag, []);
+                    const bucket = groups.get(tag);
+                    if (bucket.length < 3 && !bucket.some(existing => existing.id === item.id)) {
+                        bucket.push(item);
+                    }
+                });
+            });
+            return [...groups.entries()]
+                .filter(([, items]) => items.length)
+                .sort((a, b) => b[1].length - a[1].length)
+                .slice(0, 4)
+                .map(([tag, items]) => ({ tag, items }));
+        },
+        activeFilterLabel() {
+            const source = this.filters.source
+                ? this.newsSources.find(item => item.slug === this.filters.source)?.name || this.filters.source
+                : '全部来源';
+            const date = this.filters.date || '最新日期';
+            return `${source} · ${date}`;
+        },
         isAuthenticated() { return !!this.token && !!this.currentUser; },
         isAdmin() { return this.isAuthenticated && this.currentUser?.role === 'admin'; },
         scrapingActive() { return this.scrapingJob?.status === 'running'; },
@@ -181,6 +219,56 @@ createApp({
             });
         },
         parseMarkdown(text) { return marked.parse(String(text || '')); },
+        displayText(value) {
+            let text = String(value || '');
+            if (typeof document === 'undefined') {
+                return text
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>');
+            }
+            const textarea = document.createElement('textarea');
+            for (let i = 0; i < 2; i += 1) {
+                textarea.innerHTML = text;
+                const decoded = textarea.value;
+                if (decoded === text) break;
+                text = decoded;
+            }
+            return text;
+        },
+        sourceAccent(sourceName, index = 0) {
+            const source = String(sourceName || '').toLowerCase();
+            const known = [
+                { keys: ['alibaba', 'aliyun', '阿里'], accent: '#f97316', soft: '#fff7ed' },
+                { keys: ['openai'], accent: '#10a37f', soft: '#ecfdf5' },
+                { keys: ['anthropic', 'claude'], accent: '#cc785c', soft: '#fff1eb' },
+                { keys: ['google', 'gemini'], accent: '#4285f4', soft: '#eff6ff' },
+                { keys: ['meta'], accent: '#0468ff', soft: '#eef4ff' },
+                { keys: ['nvidia'], accent: '#76b900', soft: '#f4fbe8' },
+                { keys: ['microsoft'], accent: '#2563eb', soft: '#eff6ff' },
+                { keys: ['deepseek'], accent: '#4d6bfe', soft: '#eef2ff' },
+                { keys: ['moonshot', 'kimi'], accent: '#7c3aed', soft: '#f5f3ff' },
+                { keys: ['zhipu', '智谱'], accent: '#0f766e', soft: '#f0fdfa' },
+                { keys: ['minimax'], accent: '#db2777', soft: '#fdf2f8' },
+                { keys: ['baichuan', '百川'], accent: '#111827', soft: '#f3f4f6' },
+            ];
+            const match = known.find(item => item.keys.some(key => source.includes(key)));
+            if (match) return { accent: match.accent, soft: match.soft };
+            const fallback = [
+                { accent: '#2563eb', soft: '#eff6ff' },
+                { accent: '#059669', soft: '#ecfdf5' },
+                { accent: '#d97706', soft: '#fffbeb' },
+                { accent: '#7c3aed', soft: '#f5f3ff' },
+                { accent: '#dc2626', soft: '#fef2f2' },
+            ];
+            return fallback[Math.abs(index) % fallback.length];
+        },
+        accentStyle(item, index = 0) {
+            const { accent, soft } = this.sourceAccent(item?.source_name, index);
+            return { '--accent': accent, '--accent-soft': soft };
+        },
 
         formatDateLabel(raw) {
             if (!raw) return '未知时间';

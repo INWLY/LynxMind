@@ -40,7 +40,7 @@ docker compose up -d
 uv sync
 
 # 启动后端服务
-uv run uvicorn backend.app:app --reload
+uv run uvicorn app:app --app-dir backend --reload
 ```
 
 ### 3. 前端访问
